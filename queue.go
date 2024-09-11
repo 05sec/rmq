@@ -14,9 +14,21 @@ const (
 	purgeBatchSize      = int64(100)
 )
 
+type DeliveryState int
+
+const (
+	PayloadStateUnknown DeliveryState = iota
+	PayloadStateReady
+	PayloadStateUnacked
+	PayloadStateAcked
+	PayloadStateRejected
+)
+
 type Queue interface {
 	Publish(payload ...string) error
 	PublishBytes(payload ...[]byte) error
+	Locate(payload string) (DeliveryState, int64, error)
+	LocateBytes(payload []byte) (DeliveryState, int64, error)
 	SetPushQueue(pushQueue Queue)
 	Remove(payload string, count int64, removeFromRejected bool) error
 	RemoveBytes(payload []byte, count int64, removeFromRejected bool) error
@@ -33,6 +45,8 @@ type Queue interface {
 	Destroy() (readyCount, rejectedCount int64, err error)
 	Drain(count int64) ([]string, error)
 
+	ReadyKey() string
+
 	// internals
 	// used in cleaner
 	closeInStaleConnection() error
@@ -42,6 +56,8 @@ type Queue interface {
 	rejectedCount() (int64, error)
 	getConsumers() ([]string, error)
 }
+
+var _ Queue = (*redisQueue)(nil)
 
 type redisQueue struct {
 	name           string
@@ -105,6 +121,10 @@ func (queue *redisQueue) String() string {
 	return fmt.Sprintf("[%s conn:%s]", queue.name, queue.connectionName)
 }
 
+func (queue *redisQueue) ReadyKey() string {
+	return queue.readyKey
+}
+
 // Publish adds a delivery with the given payload to the queue
 // returns how many deliveries are in the queue afterwards
 func (queue *redisQueue) Publish(payload ...string) error {
@@ -119,6 +139,38 @@ func (queue *redisQueue) PublishBytes(payload ...[]byte) error {
 		stringifiedBytes[i] = string(b)
 	}
 	return queue.Publish(stringifiedBytes...)
+}
+
+func (queue *redisQueue) Locate(payload string) (DeliveryState, int64, error) {
+	index, err := queue.redisClient.LPos(queue.readyKey, payload)
+	if err != nil {
+		return PayloadStateUnknown, 0, err
+	}
+	if index != -1 {
+		return PayloadStateReady, index, nil
+	}
+
+	index, err = queue.redisClient.LPos(queue.unackedKey, payload)
+	if err != nil {
+		return PayloadStateUnknown, 0, err
+	}
+	if index != -1 {
+		return PayloadStateUnacked, index, nil
+	}
+
+	index, err = queue.redisClient.LPos(queue.rejectedKey, payload)
+	if err != nil {
+		return PayloadStateUnknown, 0, err
+	}
+	if index != -1 {
+		return PayloadStateRejected, index, nil
+	}
+
+	return PayloadStateAcked, -1, nil
+}
+
+func (queue *redisQueue) LocateBytes(payload []byte) (DeliveryState, int64, error) {
+	return queue.Locate(string(payload))
 }
 
 // Remove elements with specific value from the queue (WARN: this operation is pretty slow with O(N+M) complexity where N is length of the queue and M is number of removed elements)

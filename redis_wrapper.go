@@ -7,6 +7,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var _ RedisClient = &RedisWrapper{}
+
 type RedisWrapper struct {
 	rawClient redis.Cmdable
 }
@@ -30,6 +32,10 @@ func (wrapper RedisWrapper) LPush(key string, value ...string) (total int64, err
 
 func (wrapper RedisWrapper) LLen(key string) (affected int64, err error) {
 	return wrapper.rawClient.LLen(context.TODO(), key).Result()
+}
+
+func (wrapper RedisWrapper) LPos(key string, value string) (index int64, err error) {
+	return wrapper.rawClient.LPos(context.TODO(), key, value, redis.LPosArgs{}).Result()
 }
 
 func (wrapper RedisWrapper) LRem(key string, count int64, value string) (affected int64, err error) {

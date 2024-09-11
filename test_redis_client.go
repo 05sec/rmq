@@ -9,6 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var _ RedisClient = &TestRedisClient{}
+
 // TestRedisClient is a mock for redis
 type TestRedisClient struct {
 	store sync.Map
@@ -165,6 +167,12 @@ func (client *TestRedisClient) LLen(key string) (affected int64, err error) {
 		return 0, nil
 	}
 	return int64(len(list)), nil
+}
+
+// LPos returns the index of the first element matching element in the list stored at key.
+func (client *TestRedisClient) LPos(key string, value string) (index int64, err error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 // LRem removes the first count occurrences of elements equal to
